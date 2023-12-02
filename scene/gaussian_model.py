@@ -214,6 +214,9 @@ class GaussianModel:
 
     def load_ply(self, path):
         plydata = PlyData.read(path)
+        
+        # FIXME
+        tmp = plydata.elements[0]
 
         xyz = np.stack((np.asarray(plydata.elements[0]["x"]),
                         np.asarray(plydata.elements[0]["y"]),

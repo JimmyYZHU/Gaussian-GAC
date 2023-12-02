@@ -30,6 +30,8 @@ class Scene:
         self.loaded_iter = None
         self.gaussians = gaussians
 
+        print(f"\n\n {args.source_path}")
+
         if load_iteration:
             if load_iteration == -1:
                 self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, "point_cloud"))
