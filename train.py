@@ -37,10 +37,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
     
-    # FIXME: the following line is added to check ply file
-    tmp = dataset.model_path
-    test_feature(gaussians, 'output/dd261d92-e/point_cloud/iteration_7000/point_cloud.ply')
-    
     scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
     if checkpoint:
