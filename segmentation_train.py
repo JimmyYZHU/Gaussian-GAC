@@ -160,7 +160,7 @@ if __name__ == '__main__':
     cluster_size = 4096 # hard coded for now
     num_epoch = 30 # hard coded for now
     img_feature_dim = 3*3 # hard coded for now
-    num_classes = 4 # hard coded for now
+    num_classes = 6 # hard coded for now
 
     parser = ArgumentParser(description="Running segmentation trainer")
     lp = ModelParams(parser)
@@ -207,17 +207,11 @@ if __name__ == '__main__':
     # setup criterion
     criterion = torch.nn.CrossEntropyLoss()
 
-    # mod precalculations
-    quot, rem = divmod(N, cluster_size)
-
     # training cycle
     pbar = trange(num_epoch)
     for epoch in pbar:
 
-        # # at start of each epoch, first randomize the points going into GAC
-        # sel_idxes = torch.randperm(N)
-        # if rem > 0: # simply just double the genrator and cull
-        #     sel_idxes = torch.concat((sel_idxes, torch.randperm(N))[:N])
+        # at start of each epoch, first randomize the points going into GAC
         # random shuffle
         shuffle_idx = torch.randperm(xyz_all.shape[1])
         sel_idxes = [shuffle_idx[(i*cluster_size):((i+1)*cluster_size)] for i in range(xyz_all.shape[1] // cluster_size)]
