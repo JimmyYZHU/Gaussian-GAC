@@ -216,6 +216,8 @@ if __name__ == '__main__':
     # precalculations for shuffle ops
     quot, rem = divmod(N, cluster_size)
 
+    torch.autograd.set_detect_anomaly(True)
+
     # training cycle
     losses = []
     metrics = []
@@ -240,44 +242,52 @@ if __name__ == '__main__':
         feature_gaussian.set_features(seg_feat)
 
         # render a "feature image" from the feature gaussians
+        epoch_loss = 0
+        epoch_metric = 0
+        for _ in trange(1, leave=False):
+            # pick random camera to begin viewing
+            if not viewpoint_stack:
+                viewpoint_stack = scene.getTrainCameras().copy()
+            viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
 
-        # pick random camera to begin viewing
-        if not viewpoint_stack:
-            viewpoint_stack = scene.getTrainCameras().copy()
-        viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+            feature_img = render_feature_image(viewpoint_cam, feature_gaussian, pipe, bg)
 
-        feature_img = render_feature_image(viewpoint_cam, feature_gaussian, pipe, bg)
+            # apply MLP on the feature image
+            pred_segs = classifier_mlp(feature_img) # num_class*H*W
 
-        # apply MLP on the feature image
-        pred_segs = classifier_mlp(feature_img) # num_class*H*W
+            # calculate multi class loss
+            gt_segs = viewpoint_cam.label.cuda().long()
+            loss = criterion(pred_segs[None, ...], gt_segs[None, ...])
 
-        # calculate multi class loss
-        gt_segs = viewpoint_cam.label.cuda().long()
-        loss = criterion(pred_segs[None, ...], gt_segs[None, ...])
+            # backprop and update weights
+            loss.backward()
+            optim.step()
 
-        # backprop and update weights
-        loss.backward()
-        optim.step()
+            # use the mean accuracy as the evaluation metric
+            pre_label = torch.argmax(pred_segs, dim=0).long() #H*W
 
-        # use the mean accuracy as the evaluation metric
-        pre_label = torch.argmax(pred_segs, dim=0).long() #H*W
+            class_acc = - torch.ones(num_classes-1) # exclude background
+            for label in range(num_classes):
+                if label==0:
+                    continue
+                gt_num = torch.sum(gt_segs==label)
+                if gt_num>0:
+                    class_acc[label] = torch.sum((pre_label==label) & (gt_segs==label)) / gt_num
 
-        class_acc = - torch.ones(num_classes-1) # exclude background
-        for label in range(num_classes):
-            if label==0:
-                continue
-            gt_num = torch.sum(gt_segs==label)
-            if gt_num>0:
-                class_acc[label] = torch.sum((pre_label==label) & (gt_segs==label)) / gt_num
+            metric = torch.mean(class_acc[class_acc!=-1])
 
-        metric = torch.mean(class_acc[class_acc!=-1])
+            # accumulate loss and metric
+            epoch_loss += loss.item()
+            epoch_metric += metric.item()
 
         # print out current loss for sanity check
-        pbar.set_description(f"epoch {epoch} loss: {loss.item()} metric: {metric.item()}")
+        epoch_loss /= 1.
+        epoch_metric /= 1.
+        pbar.set_description(f"epoch {epoch} loss: {epoch_loss} metric: {epoch_metric}")
 
         # store losses and metrics for debugging
-        losses.append(loss.item())
-        metrics.append(metric.item())
+        losses.append(epoch_loss)
+        metrics.append(epoch_metric)
 
         #TODO: set checkpoints and weights
         if (epoch+1) % save_freq == 0:
