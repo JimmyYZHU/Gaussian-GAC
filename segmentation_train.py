@@ -87,7 +87,7 @@ class FullFeatureGaussian:
             partial_sh_features = features[:, i*FullFeatureGaussian.split_size: (i+1)*FullFeatureGaussian.split_size]
             features_dc = partial_sh_features[:, None, :FullFeatureGaussian.dc_size]
             features_rest = partial_sh_features[:, FullFeatureGaussian.dc_size:]
-            features_rest = features_rest.view(-1, FullFeatureGaussian.rest_row, FullFeatureGaussian.rest_col)
+            features_rest = features_rest.reshape(-1, FullFeatureGaussian.rest_row, FullFeatureGaussian.rest_col)
             part_feature.set_features(features_dc, features_rest)
 
 def load_full_feature_gaussian(ply_file_path: str, sh_degree: int, feature_size: int) -> FullFeatureGaussian:
@@ -207,26 +207,26 @@ if __name__ == '__main__':
     # setup criterion
     criterion = torch.nn.CrossEntropyLoss()
 
+    # precalculations for shuffle ops
+    quot, rem = divmod(N, cluster_size)
+
     # training cycle
     pbar = trange(num_epoch)
     for epoch in pbar:
 
+        # zero gradients first
+        optim_gacNet.zero_grad()
+        optim_classifier.zero_grad()
+
         # at start of each epoch, first randomize the points going into GAC
         # random shuffle
-        shuffle_idx = torch.randperm(xyz_all.shape[1])
-        sel_idxes = [shuffle_idx[(i*cluster_size):((i+1)*cluster_size)] for i in range(xyz_all.shape[1] // cluster_size)]
-        residual = xyz_all.shape[1] % cluster_size
-        if residual!=0:
-            last_block = xyz_all.shape[1] // cluster_size
-            complemented_dat = torch.cat((shuffle_idx[(last_block*cluster_size):], shuffle_idx[:(cluster_size - residual)]))
-            sel_idxes.append(complemented_dat)
-
-        # generate segmentation feature every cycle
-        gacNet.train()
-        optim_gacNet.zero_grad()
+        shuffle_idx = torch.randperm(N) if rem == 0 else \
+                        torch.concat((torch.randperm(N),torch.randperm(N)))[:((quot+1)*cluster_size)]
+        shuffle_idx = shuffle_idx.view(-1, cluster_size)
+        features = gacNet(xyz_all[:, shuffle_idx].transpose(-2,-3), feat_all[:, shuffle_idx].transpose(-2,-3))
         seg_feat = torch.zeros((xyz_all.shape[1], 144), device=xyz_all.device)
-        for idx in tqdm(sel_idxes, leave=False): #TODO -> improve efficiency
-            seg_feat[idx, :] = gacNet(xyz_all[:, idx].unsqueeze(0), feat_all[:, idx].unsqueeze(0))
+        for i,idx in enumerate(shuffle_idx): #TODO -> improve efficiency
+            seg_feat[idx, :] = features[i,...]
 
         # transfer segmentation features to FullFeatureGaussian
         feature_gaussian.set_features(seg_feat)
