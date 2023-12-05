@@ -116,16 +116,18 @@ def training():
             weight_decay=1e-4
         )
     
-    num_epoch = 5
+    num_epoch = 10
+    criterion = nn.CrossEntropyLoss()
+    
     for epoch in trange(num_epoch):
         model.train()
         optimizer.zero_grad()
         for idx in sel_idxes:
             seg_feat[:, idx, :] = model(xyz_all[:, idx].unsqueeze(0), feat_all[:, idx].unsqueeze(0))
         
-        criterion = nn.CrossEntropyLoss()
         loss = criterion(seg_feat, torch.ones(seg_feat.shape, device=seg_feat.device))
         # loss.backward()
+        print(f"epoch {epoch} loss: {loss}")
         optimizer.step()
     
     print(seg_feat[0, :3, :10])

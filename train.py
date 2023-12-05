@@ -19,6 +19,7 @@ from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
 import uuid
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
@@ -57,6 +58,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if network_gui.conn == None:
             network_gui.try_connect()
         while network_gui.conn != None:
+            # TODO: this part seems not to be used ever
             try:
                 net_image_bytes = None
                 custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
@@ -81,6 +83,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+
+        # access label by label = viewpoint_cam.label, size H*W
 
         # Render
         if (iteration - 1) == debug_from:

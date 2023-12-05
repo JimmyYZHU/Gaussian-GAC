@@ -1,6 +1,7 @@
 from scene import GaussianModel
-from GAC.GACNet import GACNet
 from torch.utils.data import Dataset
+from scene.GACNet import GACNet
+
 
 class S3DISDataLoader(Dataset):
     def __init__(self, data, labels):
@@ -14,11 +15,7 @@ class S3DISDataLoader(Dataset):
         return self.data[index], self.labels[index]
 
 
-
 def test_feature(gaussians, path):
     gaussians.load_ply(path)
-    num_class = 4
-    GAC_model = GACNet(num_class)
-    
-    a = 1
+    GAC_model = GACNet()
     

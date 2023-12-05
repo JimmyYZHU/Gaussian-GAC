@@ -17,7 +17,6 @@ from scene.dataset_readers import sceneLoadTypeCallbacks
 from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
-from GAC.GACNet import GACNet
 
 class Scene:
 
@@ -43,6 +42,7 @@ class Scene:
         self.train_cameras = {}
         self.test_cameras = {}
 
+        # TODO: sceneLoadTypeCallbacks should be chanegd to include the info of semantic
         if os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
@@ -71,6 +71,10 @@ class Scene:
 
         self.cameras_extent = scene_info.nerf_normalization["radius"]
 
+        # FIXME: cameralist_from_camInfos should be changed to rescale the semantic map 
+        if len(resolution_scales)>1:
+            assert False, "Several resolutions required, but labels in one resolution are given"
+        
         for resolution_scale in resolution_scales:
             print("Loading Training Cameras")
             self.train_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.train_cameras, resolution_scale, args)

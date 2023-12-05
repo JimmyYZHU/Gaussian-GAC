@@ -18,6 +18,7 @@ from scene.colmap_loader import read_extrinsics_text, read_intrinsics_text, qvec
 from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal
 import numpy as np
 import json
+import matplotlib.pyplot as plt
 from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
@@ -34,6 +35,8 @@ class CameraInfo(NamedTuple):
     image_name: str
     width: int
     height: int
+    label_path: str # TODO: here is the new attribute
+    label_image: np.array
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -65,7 +68,7 @@ def getNerfppNorm(cam_info):
 
     return {"translate": translate, "radius": radius}
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, label_folder=None):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -97,9 +100,27 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
         image_name = os.path.basename(image_path).split(".")[0]
         image = Image.open(image_path)
+        
+        # TODO: hardcode the label path
+        label_path = None
+        label_image = None
+        if label_folder:
+            # label_1.png
+            suffix = 'label_' + extr.name.split("_")[1].split(".")[0] + '.png'
+            label_path = os.path.join(label_folder, suffix)
+            label_image = Image.open(label_path)
+
+        # # vidualize to rgb and its cooresponding labels
+        # fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+        # axes[0].imshow(image)
+        # axes[0].set_title("Image 1")
+        # axes[1].imshow(label_image)
+        # axes[1].set_title("Image 2")
+        # plt.show()
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height)
+                              image_path=image_path, image_name=image_name, width=width, height=height, 
+                              label_path=label_path, label_image=label_image)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -142,7 +163,14 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
         cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
     reading_dir = "images" if images == None else images
-    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
+    
+    # TODO: add the label folder
+    label_dir = "labels"
+    
+    # FIXME: change in the following function to add label path
+    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, 
+                                           images_folder=os.path.join(path, reading_dir), 
+                                           label_folder=os.path.join(path, label_dir))
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
     if eval:
