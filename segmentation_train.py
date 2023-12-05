@@ -14,7 +14,7 @@ from scene.GAC_features import PlyLoader
 from scene.GACNet import GACNet
 from random import randint
 from utils.camera_utils import Camera
-
+import os
 
 class PartFeatureGaussian(GaussianModel):
     """
@@ -161,6 +161,11 @@ if __name__ == '__main__':
     num_epoch = 30 # hard coded for now
     img_feature_dim = 3*3 # hard coded for now
     num_classes = 6 # hard coded for now
+    save_freq = 5
+    ckpt_path = 'checkpoints/klevr'
+
+    if not os.path.exists(ckpt_path):
+        os.mkdir(ckpt_path)
 
     parser = ArgumentParser(description="Running segmentation trainer")
     lp = ModelParams(parser)
@@ -195,36 +200,39 @@ if __name__ == '__main__':
     viewpoint_stack = None
 
     # setup optimizers
-    optim_gacNet = torch.optim.Adam(gacNet.parameters(),
+    param_list = list(gacNet.parameters()) + list(classifier_mlp.parameters())
+    optim = torch.optim.Adam(param_list,
                                     lr=0.01,
                                     betas=(0.9, 0.999),
                                     eps=1e-08,
                                     weight_decay=1e-4)
-    optim_classifier = torch.optim.Adam(classifier_mlp.parameters(),
-                                        lr=0.005,
-                                        weight_decay=0.01)
+    # optim_classifier = torch.optim.Adam(classifier_mlp.parameters(),
+    #                                     lr=0.005,
+    #                                     weight_decay=0.01)
 
     # setup criterion
-    criterion = torch.nn.CrossEntropyLoss()
+    criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor([0.0, 1.0, 1.0, 1.0, 1.0, 1.0], device="cuda"))
 
     # precalculations for shuffle ops
     quot, rem = divmod(N, cluster_size)
 
     # training cycle
+    losses = []
+    metrics = []
     pbar = trange(num_epoch)
     for epoch in pbar:
 
-        # zero gradients first
-        optim_gacNet.zero_grad()
-        optim_classifier.zero_grad()
+        # set to train and clear all gradients
+        gacNet.train()
+        optim.zero_grad()
 
-        # at start of each epoch, first randomize the points going into GAC
+        # firstly, randomize the points going into GAC
         # random shuffle
         shuffle_idx = torch.randperm(N) if rem == 0 else \
                         torch.concat((torch.randperm(N),torch.randperm(N)))[:((quot+1)*cluster_size)]
         shuffle_idx = shuffle_idx.view(-1, cluster_size)
         features = gacNet(xyz_all[:, shuffle_idx].transpose(-2,-3), feat_all[:, shuffle_idx].transpose(-2,-3))
-        seg_feat = torch.zeros((xyz_all.shape[1], 144), device=xyz_all.device)
+        seg_feat = torch.zeros((N, 144), device=xyz_all.device)
         for i,idx in enumerate(shuffle_idx): #TODO -> improve efficiency
             seg_feat[idx, :] = features[i,...]
 
@@ -241,7 +249,7 @@ if __name__ == '__main__':
         feature_img = render_feature_image(viewpoint_cam, feature_gaussian, pipe, bg)
 
         # apply MLP on the feature image
-        pred_segs = classifier_mlp(feature_img)
+        pred_segs = classifier_mlp(feature_img) # num_class*H*W
 
         # calculate multi class loss
         gt_segs = viewpoint_cam.label.cuda().long()
@@ -249,12 +257,36 @@ if __name__ == '__main__':
 
         # backprop and update weights
         loss.backward()
-        optim_classifier.step()
-        optim_gacNet.step()
+        optim.step()
+
+        # use the mean accuracy as the evaluation metric
+        pre_label = torch.argmax(pred_segs, dim=0).long() #H*W
+
+        class_acc = - torch.ones(num_classes-1) # exclude background
+        for label in range(num_classes):
+            if label==0:
+                continue
+            gt_num = torch.sum(gt_segs==label)
+            if gt_num>0:
+                class_acc[label] = torch.sum((pre_label==label) & (gt_segs==label)) / gt_num
+
+        metric = torch.mean(class_acc[class_acc!=-1])
 
         # print out current loss for sanity check
-        pbar.set_description(f"epoch {epoch} loss: {loss.item()}")
+        pbar.set_description(f"epoch {epoch} loss: {loss.item()} metric: {metric.item()}")
 
-        #TODO: set checkpoints
+        # store losses and metrics for debugging
+        losses.append(loss.item())
+        metrics.append(metric.item())
 
-    #TODO: save weights
+        #TODO: set checkpoints and weights
+        if (epoch+1) % save_freq == 0:
+            ckpt = {
+                'epoch': epoch+1,
+                'gac_state_dict': gacNet.state_dict(),
+                'mlp_state_dict': classifier_mlp.state_dict(),
+                'optimizer_state_dict': optim.state_dict(),
+                'loss': losses,
+                'metric': metrics
+            }
+            torch.save(ckpt, os.path.join(ckpt_path, f'ckpt_ep{epoch}.pth'))
