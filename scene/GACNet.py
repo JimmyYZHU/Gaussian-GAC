@@ -236,9 +236,11 @@ class GraphAttentionConvLayer(nn.Module):
             new_points =  F.relu(bn(conv(new_points))) # centralized neighbors with feat
         # new_points: [B, F, nsample,npoint]
         # fps_points: [B, F, 1,npoint]
+        
+        B, _, _, npoints = fps_points.shape
         # TODO: the bias term is not taken for the weighted sum
         new_points = self.GAT(center_xyz=new_xyz,
-                              center_feature=fps_points.squeeze().permute(0,2,1),
+                              center_feature=fps_points.view(B, -1, npoints).permute(0,2,1),
                               grouped_xyz=grouped_xyz,
                               grouped_feature=new_points.permute(0,3,2,1))
         # new_points (grouped_feature) are h^prime
@@ -322,9 +324,9 @@ class GACNet(nn.Module):
         
         # PointNetFeaturePropagation: in_channel, mlp
         self.fp4 = PointNetFeaturePropagation(768, [256, 256])
-        self.fp3 = PointNetFeaturePropagation(384, [256, 256])
-        self.fp2 = PointNetFeaturePropagation(320, [256, 128])
-        self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128])
+        self.fp3 = PointNetFeaturePropagation(512, [256, 256])
+        self.fp2 = PointNetFeaturePropagation(384, [256, 128])
+        self.fp1 = PointNetFeaturePropagation(192, [128, 128, 128])
         
         # # for class prediction
         # self.conv1 = nn.Conv1d(128, 128, 1)
@@ -337,20 +339,14 @@ class GACNet(nn.Module):
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
         l4_xyz, l4_points = self.sa4(l3_xyz, l3_points)
+        l5_xyz, l5_points = self.sa5(l4_xyz, l4_points)
 
-        l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points)
-        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)
-        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
-        l0_points = self.fp1(xyz, l1_xyz, None, l1_points)
+        l4_points = self.fp4(l4_xyz, l5_xyz, l4_points, l5_points)
+        l3_points = self.fp3(l3_xyz, l4_xyz, l3_points, l4_points)
+        l2_points = self.fp2(l2_xyz, l3_xyz, l2_points, l3_points)
+        l1_points = self.fp1(l1_xyz, l2_xyz, l1_points, l2_points)
 
-        x = l0_points
+        # l1_points: 1*D*N
+        x = l1_points.permute(0, 2, 1)
 
         return x
-
-if __name__ == '__main__':
-    import os
-    import torch
-    os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-    input = torch.randn((8,3,2048))
-    model = GACNet(50)
-    output = model(input)

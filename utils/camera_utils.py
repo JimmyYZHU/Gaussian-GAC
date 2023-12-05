@@ -11,12 +11,14 @@
 
 from scene.cameras import Camera
 import numpy as np
-from utils.general_utils import PILtoTorch
+from utils.general_utils import PILtoTorch, LabeltoTorch
 from utils.graphics_utils import fov2focal
 
 WARNED = False
 
 def loadCam(args, id, cam_info, resolution_scale):
+    # TODO: This function should be editted if take into account image resize 
+    
     orig_w, orig_h = cam_info.image.size
 
     if args.resolution in [1, 2, 4, 8]:
@@ -39,17 +41,21 @@ def loadCam(args, id, cam_info, resolution_scale):
         resolution = (int(orig_w / scale), int(orig_h / scale))
 
     resized_image_rgb = PILtoTorch(cam_info.image, resolution)
+    # TODO: add label, no resize, H*W
+    resized_label = LabeltoTorch(cam_info.label_image)
 
     gt_image = resized_image_rgb[:3, ...]
     loaded_mask = None
 
-    if resized_image_rgb.shape[1] == 4:
+    # FIXME: the idx to check should be 0 rather than one? originally resized_image_rgb.shape[1]
+    if resized_image_rgb.shape[0] == 4:
         loaded_mask = resized_image_rgb[3:4, ...]
 
     return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
                   FoVx=cam_info.FovX, FoVy=cam_info.FovY, 
                   image=gt_image, gt_alpha_mask=loaded_mask,
-                  image_name=cam_info.image_name, uid=id, data_device=args.data_device)
+                  image_name=cam_info.image_name, uid=id, data_device=args.data_device, 
+                  label=resized_label)
 
 def cameraList_from_camInfos(cam_infos, resolution_scale, args):
     camera_list = []

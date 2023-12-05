@@ -1,23 +1,24 @@
-from GAC.GACNet import GACNet
+from GACNet import GACNet
 import numpy as np
 from plyfile import PlyData, PlyElement
 from torch import nn
 import torch
-
+from tqdm import tqdm, trange
+import argparse
 
 class PlyLoader():
     def __init__(self, ply_path):
         self.max_sh_degree = 3
-        
+
         self.xyz = torch.empty(0)
         self.features_dc = torch.empty(0)
         self.features_rest = torch.empty(0)
         self.scaling = torch.empty(0)
         self.rotation = torch.empty(0)
         self.opacity = torch.empty(0)
-        
+
         self.load_ply(ply_path)
-        
+
     def load_ply(self, ply_path):
         plydata = PlyData.read(ply_path)
 
@@ -63,24 +64,80 @@ class PlyLoader():
         # ouput: xyz: [B, C, N], feat: [B, D, N], C=3, D56
 
         N, _ = self.xyz.shape
-        xyz = self.xyz.clone().permute(1, 0).unsqueeze(0)
-        
-        # N*1*3, C=3
-        feat_dc = self.features_dc.clone().permute(1, 2, 0)
-        # N*(F/3)*3
-        feat_rest = self.features_rest.clone().view(N, -1).permute(1, 0).unsqueeze(0)
-        # N*1
-        opacity = self.opacity.clone().permute(1, 0).unsqueeze(0)
-        # N*3
-        scaling = self.scaling.clone().permute(1, 0).unsqueeze(0)
-        # N*4
-        rotation = self.rotation.clone().permute(1, 0).unsqueeze(0)
-        # size should be 3+45+1+3+4=56, [B, D, N]
-        feat = torch.cat((feat_dc, feat_rest, opacity, scaling, rotation), dim=1)
+        # N = 4096
 
-        return xyz, feat
+        xyz = self.xyz.permute(1, 0)
+
+        # N*1*3, C=3
+        feat_dc = self.features_dc.permute(1, 2, 0)
+        feat_dc = feat_dc.squeeze()
+        # N*(F/3)*3
+        feat_rest = self.features_rest.view(N, -1).permute(1, 0)
+        # N*1
+        opacity = self.opacity.permute(1, 0)
+        # N*3
+        scaling = self.scaling.permute(1, 0)
+        # N*4
+        rotation = self.rotation.permute(1, 0)
+        # size should be 3+45+1+3+4=56, [B, D, N]
+        feat = torch.cat((feat_dc, feat_rest, opacity, scaling, rotation), dim=0)
+
+        M = 4096
+        return xyz[:, :M], feat[:, :M]
+
+
+def training():
+    ply_path = 'output/tandt/point_cloud/iteration_3000/point_cloud.ply'
+    dataloader = PlyLoader(ply_path)
+
+    model = GACNet()
+    model.to('cuda')
+
+    data_size = 4096
+    # xyz_all: 3*N
+    xyz_all, feat_all = dataloader.get_full_data()
+
+    # random shuffle
+    shuffle_idx = torch.randperm(xyz_all.shape[1])
+    sel_idxes = [shuffle_idx[(i*data_size):((i+1)*data_size)] for i in range(xyz_all.shape[1] // data_size)]
+    residual = xyz_all.shape[1] % data_size
+    if residual!=0:
+        last_block = xyz_all.shape[1] // data_size
+        complemented_dat = torch.cat((shuffle_idx[(last_block*data_size):], shuffle_idx[:residual]))
+        sel_idxes.append(complemented_dat)
+
+    optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=0.01,
+            betas=(0.9, 0.999),
+            eps=1e-08,
+            weight_decay=1e-4
+        )
+
+    num_epoch = 10
+    criterion = nn.CrossEntropyLoss()
+
+    pbar = trange(num_epoch)
+    for epoch in pbar:
+        total_loss = 0
+
+        model.train()
+        optimizer.zero_grad()
+        seg_feat = torch.zeros((1, xyz_all.shape[1], 128), device=xyz_all.device)
+        for idx in sel_idxes:
+            # B*N*D
+            # batch_pred = model(xyz_all[:, idx].unsqueeze(0), feat_all[:, idx].unsqueeze(0))
+            # loss = criterion(batch_pred, torch.ones(batch_pred.shape, device=xyz_all.device))
+            seg_feat[:, idx, :] = model(xyz_all[:, idx].unsqueeze(0), feat_all[:, idx].unsqueeze(0))
+
+        loss = criterion(seg_feat, torch.ones(seg_feat.shape, device=seg_feat.device))
+        loss.backward()
+        total_loss += loss.item()
+        pbar.set_description(f"epoch {epoch} total loss: {total_loss}")
+        optimizer.step()
+
+
 
 
 if __name__ == "__main__":
-    ply_path = 'output/dd261d92-e/point_cloud/iteration_7000/point_cloud.ply'
-    dataloader = PlyLoader(ply_path)
+    training()

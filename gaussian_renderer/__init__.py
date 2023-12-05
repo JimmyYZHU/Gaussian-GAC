@@ -62,6 +62,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     if pipe.compute_cov3D_python:
         cov3D_precomp = pc.get_covariance(scaling_modifier)
     else:
+        # this way
         scales = pc.get_scaling
         rotations = pc.get_rotation
 
@@ -77,6 +78,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
             colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
         else:
+            # this way
             shs = pc.get_features
     else:
         colors_precomp = override_color
