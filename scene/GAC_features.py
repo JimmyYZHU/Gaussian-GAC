@@ -1,4 +1,4 @@
-from GACNet import GACNet
+from scene.GACNet import GACNet
 import numpy as np
 from plyfile import PlyData, PlyElement
 from torch import nn
@@ -82,8 +82,9 @@ class PlyLoader():
         # size should be 3+45+1+3+4=56, [B, D, N]
         feat = torch.cat((feat_dc, feat_rest, opacity, scaling, rotation), dim=0)
 
-        M = 4096
-        return xyz[:, :M], feat[:, :M]
+        return xyz, feat
+        # M = 4096
+        # return xyz[:, :M], feat[:, :M]
 
 
 def training():

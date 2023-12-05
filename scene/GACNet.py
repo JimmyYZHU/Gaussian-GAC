@@ -236,7 +236,7 @@ class GraphAttentionConvLayer(nn.Module):
             new_points =  F.relu(bn(conv(new_points))) # centralized neighbors with feat
         # new_points: [B, F, nsample,npoint]
         # fps_points: [B, F, 1,npoint]
-        
+
         B, _, _, npoints = fps_points.shape
         # TODO: the bias term is not taken for the weighted sum
         new_points = self.GAT(center_xyz=new_xyz,
@@ -321,13 +321,14 @@ class GACNet(nn.Module):
         self.sa3 = GraphAttentionConvLayer(256, 0.4, 32, 128 + 3, [128, 128, 256], False, droupout,alpha)
         self.sa4 = GraphAttentionConvLayer(64, 0.8, 32, 256 + 3, [256, 256, 512], False, droupout,alpha)
         self.sa5 = GraphAttentionConvLayer(32, 1.6, 32, 512 + 3, [512, 512, 256], False, droupout,alpha)
-        
+
         # PointNetFeaturePropagation: in_channel, mlp
         self.fp4 = PointNetFeaturePropagation(768, [256, 256])
         self.fp3 = PointNetFeaturePropagation(512, [256, 256])
         self.fp2 = PointNetFeaturePropagation(384, [256, 128])
-        self.fp1 = PointNetFeaturePropagation(192, [128, 128, 128])
-        
+        # self.fp1 = PointNetFeaturePropagation(192, [128, 128, 128])
+        self.fp1 = PointNetFeaturePropagation(192, [128, 128, 144]) # 3 * 45 features -> 3 PartFeatures
+
         # # for class prediction
         # self.conv1 = nn.Conv1d(128, 128, 1)
         # self.bn1 = nn.BatchNorm1d(128)
