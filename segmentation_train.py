@@ -162,18 +162,17 @@ if __name__ == '__main__':
     img_feature_dim = 3*3 # hard coded for now
     num_classes = 6 # hard coded for now
     save_freq = 5
-    ckpt_path = 'checkpoints/klevr'
-
-    if not os.path.exists(ckpt_path):
-        os.mkdir(ckpt_path)
 
     parser = ArgumentParser(description="Running segmentation trainer")
     lp = ModelParams(parser)
     op = OptimizationParams(parser)
     pp = PipelineParams(parser)
-    # parser.add_argument("--start_checkpoint", type=str, default = None)
+    parser.add_argument("--checkpt_dir", type=str, default = None)
     parser.add_argument("--source_ply", type=str, default = None)
     args = parser.parse_args(sys.argv[1:])
+
+    if not os.path.exists(args.checkpt_dir):
+        os.mkdir(args.checkpt_dir)
 
     dataset = lp.extract(args)
     opt = op.extract(args)
@@ -226,6 +225,7 @@ if __name__ == '__main__':
 
         # set to train and clear all gradients
         gacNet.train()
+        classifier_mlp.train()
         optim.zero_grad()
 
         # firstly, randomize the points going into GAC
@@ -299,4 +299,4 @@ if __name__ == '__main__':
                 'loss': losses,
                 'metric': metrics
             }
-            torch.save(ckpt, os.path.join(ckpt_path, f'ckpt_ep{epoch}.pth'))
+            torch.save(ckpt, os.path.join(args.checkpt_dir, f'ckpt_ep{epoch}.pth'))
