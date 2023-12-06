@@ -232,13 +232,9 @@ if __name__ == '__main__':
         classifier_mlp.train()
 
         # firstly, randomize the points going into GAC
-        # random shuffle
         shuffle_idx = torch.randperm(N) if rem == 0 else \
                         torch.concat((torch.randperm(N),torch.randperm(N)))[:((quot+1)*cluster_size)]
         shuffle_idx = shuffle_idx.view(-1, cluster_size)
-
-        # FIXME: add feature here
-        
         
         # render a "feature image" from the feature gaussians
         epoch_loss = []
@@ -248,22 +244,17 @@ if __name__ == '__main__':
         pbar2 = tqdm(train_views, leave=False)
         for viewpoint_cam in pbar2:
 
-        # for _ in trange(2, leave=False):
-        #     # pick random camera to begin viewing
-        #     if not viewpoint_stack:
-        #         viewpoint_stack = scene.getTrainCameras().copy()
-        #     viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
-
+            # zero grad before any calculations
             optim.zero_grad()
 
-            ###########
+            # GAC sampling and convolution step
             features = gacNet(xyz_all[:, shuffle_idx].transpose(-2,-3), feat_all[:, shuffle_idx].transpose(-2,-3))
             seg_feat = torch.zeros((N, 144), device=xyz_all.device)
             for i,idx in enumerate(shuffle_idx): #TODO -> improve efficiency
                 seg_feat[idx, :] = features[i,...]
+
             # transfer segmentation features to FullFeatureGaussian
             feature_gaussian.set_features(seg_feat)
-            ###########
 
             feature_img = render_feature_image(viewpoint_cam, feature_gaussian, pipe, bg)
 
@@ -275,9 +266,7 @@ if __name__ == '__main__':
             loss = criterion(pred_segs[None, ...], gt_segs[None, ...])
 
             # backprop and update weights
-            # FIXME: the potential solution to the problem backpropagate the same graph twice
             loss.backward()
-            # loss.backward()
             optim.step()
 
             # use the mean accuracy as the evaluation metric
@@ -306,7 +295,7 @@ if __name__ == '__main__':
         losses.append(epoch_loss)
         metrics.append(epoch_metric)
 
-        #TODO: set checkpoints and weights
+        # set checkpoints and weights
         if (epoch+1) % save_freq == 0:
             ckpt = {
                 'epoch': epoch+1,
