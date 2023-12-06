@@ -15,6 +15,7 @@ from scene.GACNet import GACNet
 from random import randint
 from utils.camera_utils import Camera
 import os
+from statistics import mean 
 
 class PartFeatureGaussian(GaussianModel):
     """
@@ -158,22 +159,27 @@ if __name__ == '__main__':
     sh_degree = 3 # hard coded for now
     num_features = 144 # 48 *3, hard coded for now
     cluster_size = 4096 # hard coded for now
-    num_epoch = 30 # hard coded for now
+    num_epoch = 20 # hard coded for now
     img_feature_dim = 3*3 # hard coded for now
     num_classes = 6 # hard coded for now
     save_freq = 5
-    ckpt_path = 'checkpoints/klevr'
-
-    if not os.path.exists(ckpt_path):
-        os.mkdir(ckpt_path)
 
     parser = ArgumentParser(description="Running segmentation trainer")
     lp = ModelParams(parser)
     op = OptimizationParams(parser)
     pp = PipelineParams(parser)
     # parser.add_argument("--start_checkpoint", type=str, default = None)
-    parser.add_argument("--source_ply", type=str, default = None)
+    parser.add_argument('--num_epoch', type=int, default=num_epoch,
+                        help="Number of (large) training epoch.")
+    parser.add_argument("--source_ply", type=str, default = None,
+                        help="Path to gaussian plyfile.")
+    parser.add_argument("--ckpt", type=str, default = None,
+                        help="Checkpoint directory to load and save checkpoints.")
     args = parser.parse_args(sys.argv[1:])
+
+    ckpt_path = args.ckpt
+    if not os.path.exists(ckpt_path):
+        os.mkdir(ckpt_path)
 
     dataset = lp.extract(args)
     opt = op.extract(args)
@@ -221,34 +227,46 @@ if __name__ == '__main__':
     # training cycle
     losses = []
     metrics = []
-    pbar = trange(num_epoch)
+    pbar = trange(args.num_epoch)
     for epoch in pbar:
 
         # set to train and clear all gradients
         gacNet.train()
-        optim.zero_grad()
+        classifier_mlp.train()
 
         # firstly, randomize the points going into GAC
         # random shuffle
         shuffle_idx = torch.randperm(N) if rem == 0 else \
                         torch.concat((torch.randperm(N),torch.randperm(N)))[:((quot+1)*cluster_size)]
         shuffle_idx = shuffle_idx.view(-1, cluster_size)
-        features = gacNet(xyz_all[:, shuffle_idx].transpose(-2,-3), feat_all[:, shuffle_idx].transpose(-2,-3))
-        seg_feat = torch.zeros((N, 144), device=xyz_all.device)
-        for i,idx in enumerate(shuffle_idx): #TODO -> improve efficiency
-            seg_feat[idx, :] = features[i,...]
 
-        # transfer segmentation features to FullFeatureGaussian
-        feature_gaussian.set_features(seg_feat)
-
+        # FIXME: add feature here
+        
+        
         # render a "feature image" from the feature gaussians
-        epoch_loss = 0
-        epoch_metric = 0
-        for _ in trange(1, leave=False):
-            # pick random camera to begin viewing
-            if not viewpoint_stack:
-                viewpoint_stack = scene.getTrainCameras().copy()
-            viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        epoch_loss = []
+        epoch_metric = []
+
+        train_views = scene.getTrainCameras().copy()
+        pbar2 = tqdm(train_views, leave=False)
+        for viewpoint_cam in pbar2:
+
+        # for _ in trange(2, leave=False):
+        #     # pick random camera to begin viewing
+        #     if not viewpoint_stack:
+        #         viewpoint_stack = scene.getTrainCameras().copy()
+        #     viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+
+            optim.zero_grad()
+
+            ###########
+            features = gacNet(xyz_all[:, shuffle_idx].transpose(-2,-3), feat_all[:, shuffle_idx].transpose(-2,-3))
+            seg_feat = torch.zeros((N, 144), device=xyz_all.device)
+            for i,idx in enumerate(shuffle_idx): #TODO -> improve efficiency
+                seg_feat[idx, :] = features[i,...]
+            # transfer segmentation features to FullFeatureGaussian
+            feature_gaussian.set_features(seg_feat)
+            ###########
 
             feature_img = render_feature_image(viewpoint_cam, feature_gaussian, pipe, bg)
 
@@ -260,7 +278,9 @@ if __name__ == '__main__':
             loss = criterion(pred_segs[None, ...], gt_segs[None, ...])
 
             # backprop and update weights
+            # FIXME: the potential solution to the problem backpropagate the same graph twice
             loss.backward()
+            # loss.backward()
             optim.step()
 
             # use the mean accuracy as the evaluation metric
@@ -277,13 +297,13 @@ if __name__ == '__main__':
             metric = torch.mean(class_acc[class_acc!=-1])
 
             # accumulate loss and metric
-            epoch_loss += loss.item()
-            epoch_metric += metric.item()
-
+            epoch_loss += [loss.item()]
+            epoch_metric += [metric.item()]
+            
+            pbar2.set_description(f"Mini loss: {loss.item()} metric: {metric.item()}")
+ 
         # print out current loss for sanity check
-        epoch_loss /= 1.
-        epoch_metric /= 1.
-        pbar.set_description(f"epoch {epoch} loss: {epoch_loss} metric: {epoch_metric}")
+        pbar.set_description(f"Epoch {epoch}: loss: {mean(epoch_loss)} metric: {mean(epoch_metric)}")
 
         # store losses and metrics for debugging
         losses.append(epoch_loss)
